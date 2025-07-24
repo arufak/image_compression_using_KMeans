@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Compression using KMeans Clustering</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f4f4f4;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .form-container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="file"], input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        #loading {
+            display: none;
+            text-align: center;
+            color: #666;
+            margin: 20px 0;
+        }
+
+        #result {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        #result img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Image Compression using KMeans Clustering</h1>
+    
+    <div class="form-container">
+        <div class="form-group">
+            <label for="file">Select an image:</label>
+            <input type="file" id="file" name="file" accept="image/*" required>
+        </div>
+
+        <div class="form-group">
+            <label for="n_colors">Number of colors:</label>
+            <input type="number" id="n_colors" name="n_colors" value="8" min="2" max="256" required>
+        </div>
+
+        <button type="button" id="compressBtn">Compress Image</button>
+    </div>
+
+    <div id="loading">
+        <p>Processing image...</p>
+    </div>
+
+    <div id="result">
+        <img id="resultImage" alt="Compressed Image Result">
+    </div>
+
+    <script>
+        // Simple KMeans implementation
+        class KMeans {
+            constructor(k, maxIterations = 100) {
+                this.k = k;
+                this.maxIterations = maxIterations;
+            }
+
+            initializeCentroids(data) {
+                const centroids = [];
+                for (let i = 0; i < this.k; i++) {
+                    const randomIndex = Math.floor(Math.random() * data.length);
+                    centroids.push([...data[randomIndex]]);
+                }
+                return centroids;
+            }
+
+            distance(point1, point2) {
+                return Math.sqrt(
+                    point1.reduce((sum, val, i) => sum + Math.pow(val - point2[i], 2), 0)
+                );
+            }
+
+            assignToClusters(data, centroids) {
+                return data.map(point => {
+                    let minDistance = Infinity;
+                    let clusterIndex = 0;
+                    
+                    centroids.forEach((centroid, index) => {
+                        const dist = this.distance(point, centroid);
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            clusterIndex = index;
+                        }
+                    });
+                    
+                    return clusterIndex;
+                });
+            }
+
+            updateCentroids(data, assignments) {
+                const newCentroids = [];
+                
+                for (let i = 0; i < this.k; i++) {
+                    const clusterPoints = data.filter((_, index) => assignments[index] === i);
+                    
+                    if (clusterPoints.length === 0) {
+                        newCentroids.push([...this.centroids[i]]);
+                    } else {
+                        const centroid = clusterPoints[0].map((_, dim) =>
+                            clusterPoints.reduce((sum, point) => sum + point[dim], 0) / clusterPoints.length
+                        );
+                        newCentroids.push(centroid);
+                    }
+                }
+                
+                return newCentroids;
+            }
+
+            fit(data) {
+                this.centroids = this.initializeCentroids(data);
+                
+                for (let iteration = 0; iteration < this.maxIterations; iteration++) {
+                    const assignments = this.assignToClusters(data, this.centroids);
+                    const newCentroids = this.updateCentroids(data, assignments);
+                    
+                    const converged = this.centroids.every((centroid, index) =>
+                        centroid.every((val, dim) => Math.abs(val - newCentroids[index][dim]) < 0.001)
+                    );
+                    
+                    this.centroids = newCentroids;
+                    
+                    if (converged) break;
+                }
+                
+                return this.assignToClusters(data, this.centroids);
+            }
+        }
+
+        function compressImage(imageData, nColors) {
+            const { data, width, height } = imageData;
+            
+            // Extract RGB values
+            const pixels = [];
+            for (let i = 0; i < data.length; i += 4) {
+                pixels.push([data[i], data[i + 1], data[i + 2]]);
+            }
+            
+            // Apply KMeans clustering
+            const kmeans = new KMeans(nColors);
+            const assignments = kmeans.fit(pixels);
+            
+            // Create compressed image data
+            const compressedData = new Uint8ClampedArray(data.length);
+            
+            for (let i = 0; i < pixels.length; i++) {
+                const clusterIndex = assignments[i];
+                const centroid = kmeans.centroids[clusterIndex];
+                
+                const pixelIndex = i * 4;
+                compressedData[pixelIndex] = Math.round(centroid[0]);
+                compressedData[pixelIndex + 1] = Math.round(centroid[1]);
+                compressedData[pixelIndex + 2] = Math.round(centroid[2]);
+                compressedData[pixelIndex + 3] = data[pixelIndex + 3];
+            }
+            
+            return new ImageData(compressedData, width, height);
+        }
+
+        document.getElementById('compressBtn').addEventListener('click', function() {
+            const fileInput = document.getElementById('file');
+            const nColorsInput = document.getElementById('n_colors');
+            
+            if (!fileInput.files[0]) {
+                alert('Please select an image file.');
+                return;
+            }
+            
+            const nColors = parseInt(nColorsInput.value);
+            if (nColors < 2 || nColors > 256) {
+                alert('Number of colors must be between 2 and 256.');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            this.disabled = true;
+            
+            const file = fileInput.files[0];
+            const img = new Image();
+            
+            img.onload = function() {
+                // Create canvas for original image
+                const originalCanvas = document.createElement('canvas');
+                const originalCtx = originalCanvas.getContext('2d');
+                
+                originalCanvas.width = img.width;
+                originalCanvas.height = img.height;
+                originalCtx.drawImage(img, 0, 0);
+                
+                const imageData = originalCtx.getImageData(0, 0, img.width, img.height);
+                
+                // Process in next tick to allow UI update
+                setTimeout(() => {
+                    const compressedImageData = compressImage(imageData, nColors);
+                    
+                    // Create canvas for compressed image
+                    const compressedCanvas = document.createElement('canvas');
+                    const compressedCtx = compressedCanvas.getContext('2d');
+                    compressedCanvas.width = img.width;
+                    compressedCanvas.height = img.height;
+                    compressedCtx.putImageData(compressedImageData, 0, 0);
+                    
+                    // Create side-by-side result like your Flask app
+                    const resultCanvas = document.createElement('canvas');
+                    const resultCtx = resultCanvas.getContext('2d');
+                    resultCanvas.width = img.width * 2;
+                    resultCanvas.height = img.height;
+                    
+                    // Draw original on left, compressed on right
+                    resultCtx.drawImage(originalCanvas, 0, 0);
+                    resultCtx.drawImage(compressedCanvas, img.width, 0);
+                    
+                    // Show result
+                    document.getElementById('resultImage').src = resultCanvas.toDataURL();
+                    document.getElementById('result').style.display = 'block';
+                    document.getElementById('loading').style.display = 'none';
+                    document.getElementById('compressBtn').disabled = false;
+                }, 100);
+            };
+            
+            img.src = URL.createObjectURL(file);
+        });
+    </script>
+</body>
+</html>
